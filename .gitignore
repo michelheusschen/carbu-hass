@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ruff
+.ruff_cache/
+
+# Local Home Assistant runtime data
+docker/homeassistant/config/.storage/
+docker/homeassistant/config/.cache/
+docker/homeassistant/config/.cloud/
+docker/homeassistant/config/deps/
+docker/homeassistant/config/tts/
+docker/homeassistant/config/blueprints/
+docker/homeassistant/config/custom_components/
+docker/homeassistant/config/home-assistant.log*
+docker/homeassistant/config/home-assistant_v2.db*
+docker/homeassistant/config/.ha_run.lock
+docker/homeassistant/config/.HA_VERSION

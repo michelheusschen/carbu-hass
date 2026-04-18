@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Location",
+        "description": "Enter the country and postal code to find fuel stations.",
+        "data": {
+          "country": "Country",
+          "postal_code": "Postal code"
+        }
+      },
+      "town": {
+        "title": "Select town",
+        "description": "Multiple towns match your postal code. Please select the correct one.",
+        "data": {
+          "town": "Town"
+        }
+      },
+      "fuel_type": {
+        "title": "Fuel type",
+        "description": "Select the fuel type to track prices for.",
+        "data": {
+          "fuel_type": "Fuel type"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to carbu.com. Please try again later.",
+      "no_locations_found": "No locations found for this postal code and country.",
+      "no_stations_for_fuel": "No stations with price data found for this fuel type in the selected location.",
+      "already_configured": "This location and fuel type combination is already configured."
+    },
+    "abort": {
+      "already_configured": "This location and fuel type combination is already configured."
+    }
+  }
+}
