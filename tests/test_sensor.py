@@ -131,6 +131,16 @@ class TestCarbuFuelStationSensor:
         sensor = CarbuFuelStationSensor(mock_coordinator, "21313")
         assert sensor.suggested_display_precision == 3
 
+    def test_no_statistics_state_class(
+        self,
+        mock_coordinator: CarbuFuelCoordinator,
+    ) -> None:
+        """Test that station prices use raw history instead of HA statistics."""
+        sensor = CarbuFuelStationSensor(mock_coordinator, "21313")
+
+        assert sensor.state_class is None
+        assert sensor.capability_attributes is None
+
     def test_multiple_stations_have_unique_ids(
         self,
         mock_coordinator: CarbuFuelCoordinator,
@@ -165,6 +175,7 @@ class TestCarbuFuelPredictionSensor:
         assert sensor.native_value == -1.234
         assert sensor.extra_state_attributes["forecast_date"] == "22/04/2026"
         assert sensor.extra_state_attributes["predicted_price"] == 1.79
+        assert sensor.state_class is None
 
 
 class TestCarbuFuelLowestPriceSensor:
@@ -187,6 +198,7 @@ class TestCarbuFuelLowestPriceSensor:
         assert attrs["entry_postal_code"] == "1831"
         assert attrs["town"] == "Diegem"
         assert attrs["entry_title"] == "Diegem 1831 - Diesel (B7)"
+        assert sensor.state_class is None
 
     def test_lowest_price_sensor_uses_custom_entry_title(
         self,

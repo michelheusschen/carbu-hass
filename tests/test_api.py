@@ -384,6 +384,44 @@ class TestGetFuelPrediction:
             assert prediction.predicted_price == 1.85
             assert prediction.trend_percent == pytest.approx(2.778, abs=0.001)
 
+    async def test_parses_current_echarts_prediction_page(
+        self,
+        api_client: CarbuApiClient,
+    ) -> None:
+        """Test that the current ECharts prediction page format is parsed."""
+        html = """
+        <html><body>
+        <script>
+        var option={
+            "xAxis":{
+                "type":"category",
+                "data":["10/05/2026","11/05/2026","+1","+2","+3","+4","+5"]
+            },
+            "series":[
+                {"name":"Maximum prijs","data":[758.579,758.579,null,null,null,null,null]},
+                {
+                    "name":"Maximum prijs (Voorspellingen)",
+                    "data":[null,758.579,758.579,758.579,758.579,770.966,770.966]
+                }
+            ]
+        };
+        option.series[0].markArea={};
+        </script>
+        </body></html>
+        """
+
+        with patch.object(api_client, "_rate_limited_get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = html
+
+            prediction = await api_client.get_fuel_prediction(FuelType.SUPER95_E10)
+
+            assert prediction is not None
+            assert prediction.baseline_date == "11/05/2026"
+            assert prediction.forecast_date == "16/05/2026"
+            assert prediction.baseline_price == 0.759
+            assert prediction.predicted_price == 0.771
+            assert prediction.trend_percent == pytest.approx(1.633, abs=0.001)
+
     async def test_returns_none_for_unsupported_fuel(
         self,
         api_client: CarbuApiClient,
