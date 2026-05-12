@@ -5,10 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorStateClass,
-)
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
@@ -153,7 +150,6 @@ class CarbuFuelStationSensor(CoordinatorEntity[CarbuFuelCoordinator], SensorEnti
     Attributes: station details (name, brand, address, distance, etc.).
     """
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:gas-station"
     _attr_has_entity_name = True
 
@@ -248,7 +244,6 @@ class CarbuFuelStationSensor(CoordinatorEntity[CarbuFuelCoordinator], SensorEnti
 class CarbuFuelLowestPriceSensor(CoordinatorEntity[CarbuFuelCoordinator], SensorEntity):
     """Sensor entity representing the lowest available station price for an entry."""
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:cash-check"
     _attr_native_unit_of_measurement = "€/L"
     _attr_suggested_display_precision = 3
@@ -308,7 +303,6 @@ class CarbuFuelLowestPriceSensor(CoordinatorEntity[CarbuFuelCoordinator], Sensor
 class CarbuFuelPredictionSensor(CoordinatorEntity[CarbuFuelCoordinator], SensorEntity):
     """Sensor entity representing upcoming market-level fuel trend prediction."""
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:chart-line"
     _attr_has_entity_name = True
     _attr_native_unit_of_measurement = "%"

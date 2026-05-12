@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime, timedelta
@@ -83,8 +84,6 @@ class CarbuApiClient:
         text = await self._rate_limited_get(url)
 
         try:
-            import json
-
             raw_locations = json.loads(text)
         except (json.JSONDecodeError, TypeError) as err:
             msg = f"Failed to parse location response for postal code {postal_code}"
@@ -150,9 +149,7 @@ class CarbuApiClient:
         if prediction_code is None:
             return None
 
-        url = CARBU_PREDICTION_URL_TEMPLATE.format(
-            prediction_code=quote(prediction_code, safe="")
-        )
+        url = CARBU_PREDICTION_URL_TEMPLATE.format(prediction_code=quote(prediction_code, safe=""))
         _LOGGER.debug("Fetching fuel prediction from %s", url)
         text = await self._rate_limited_get(url)
 
@@ -180,6 +177,10 @@ class CarbuApiClient:
 
     def _parse_prediction_html(self, html: str) -> FuelPrediction:
         """Parse prediction chart HTML into a FuelPrediction object."""
+        echarts_prediction = _parse_echarts_prediction_html(html)
+        if echarts_prediction is not None:
+            return echarts_prediction
+
         categories_match = re.search(r"categories:\s*\[(.*?)\]", html, re.S)
         series_match = re.search(
             r"name:\s*'Maximum prijs\s*\(Voorspellingen\)'.*?data:\s*\[(.*?)\]",
@@ -198,33 +199,7 @@ class CarbuApiClient:
         ]
         values = _parse_series_float_values(series_match.group(1))
 
-        if "+1" not in categories:
-            msg = "Prediction marker '+1' not found in forecast page"
-            raise CarbuApiParseError(msg)
-
-        plus_one_index = categories.index("+1")
-        if plus_one_index == 0 or plus_one_index + 4 >= len(values):
-            msg = "Prediction series does not contain enough data points"
-            raise CarbuApiParseError(msg)
-
-        baseline_price = values[plus_one_index - 1]
-        predicted_price = values[plus_one_index + 4]
-
-        if baseline_price is None or predicted_price is None or baseline_price <= 0:
-            msg = "Prediction contains invalid price values"
-            raise CarbuApiParseError(msg)
-
-        baseline_date = categories[plus_one_index - 1]
-        forecast_date = _add_days_to_date_str(baseline_date, days=5)
-        trend_percent = round(((predicted_price - baseline_price) / baseline_price) * 100, 3)
-
-        return FuelPrediction(
-            trend_percent=trend_percent,
-            baseline_date=baseline_date,
-            forecast_date=forecast_date,
-            baseline_price=round(baseline_price, 3),
-            predicted_price=round(predicted_price, 3),
-        )
+        return _prediction_from_categories_and_values(categories, values)
 
     def _parse_single_station(
         self,
@@ -316,6 +291,235 @@ class CarbuApiClient:
             date=date,
             country=country,
         )
+
+
+def _prediction_from_categories_and_values(
+    categories: list[str], values: list[float | None]
+) -> FuelPrediction:
+    """Build prediction data from chart categories and the max-price forecast series."""
+    categories = [str(category) for category in categories]
+
+    if "+1" not in categories:
+        msg = "Prediction marker '+1' not found in forecast page"
+        raise CarbuApiParseError(msg)
+
+    plus_one_index = categories.index("+1")
+    if plus_one_index == 0 or plus_one_index + 4 >= len(values):
+        msg = "Prediction series does not contain enough data points"
+        raise CarbuApiParseError(msg)
+
+    baseline_price = values[plus_one_index - 1]
+    predicted_price = values[plus_one_index + 4]
+
+    if baseline_price is None or predicted_price is None or baseline_price <= 0:
+        msg = "Prediction contains invalid price values"
+        raise CarbuApiParseError(msg)
+
+    baseline_date = categories[plus_one_index - 1]
+    forecast_date = _add_days_to_date_str(baseline_date, days=5)
+    trend_percent = round(((predicted_price - baseline_price) / baseline_price) * 100, 3)
+
+    return FuelPrediction(
+        trend_percent=trend_percent,
+        baseline_date=baseline_date,
+        forecast_date=forecast_date,
+        baseline_price=round(_normalize_prediction_price(baseline_price), 3),
+        predicted_price=round(_normalize_prediction_price(predicted_price), 3),
+    )
+
+
+def _parse_echarts_prediction_html(html: str) -> FuelPrediction | None:
+    """Parse Carbu's ECharts prediction object if present."""
+    candidates: list[tuple[int, list[str], list[float | None]]] = []
+
+    for option_text in _extract_echarts_option_texts(html):
+        chart_data = _echarts_chart_data_from_json(option_text)
+        if chart_data is None:
+            chart_data = _echarts_chart_data_from_text(option_text)
+        if chart_data is None:
+            continue
+
+        categories, values = chart_data
+        precision_score = sum(
+            1 for value in values if value is not None and not float(value).is_integer()
+        )
+        candidates.append((precision_score, categories, values))
+
+    if not candidates:
+        return None
+
+    _score, categories, values = max(candidates, key=lambda candidate: candidate[0])
+    return _prediction_from_categories_and_values(categories, values)
+
+
+def _extract_echarts_option_texts(html: str) -> list[str]:
+    """Extract ECharts option object text from the forecast page."""
+    options: list[str] = []
+
+    for match in re.finditer(r"var\s+option\s*=", html):
+        start = html.find("{", match.end())
+        if start == -1:
+            continue
+
+        end = _find_balanced_object_end(html, start)
+        if end is None:
+            continue
+
+        options.append(html[start : end + 1])
+
+    return options
+
+
+def _find_balanced_object_end(text: str, start: int) -> int | None:
+    """Return the end offset of a JavaScript object literal with JSON-like strings."""
+    depth = 0
+    quote: str | None = None
+    escaped = False
+
+    for index in range(start, len(text)):
+        char = text[index]
+
+        if escaped:
+            escaped = False
+            continue
+
+        if quote is not None:
+            if char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+
+        if char in {"'", '"'}:
+            quote = char
+            continue
+
+        if char == "{":
+            depth += 1
+            continue
+
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+
+    return None
+
+
+def _echarts_chart_data_from_json(option_text: str) -> tuple[list[str], list[float | None]] | None:
+    """Return chart categories and forecast values from valid JSON option text."""
+    try:
+        option = json.loads(option_text)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(option, dict):
+        return None
+
+    categories = _echarts_categories(option)
+    values = _echarts_prediction_values(option)
+    if categories is None or values is None:
+        return None
+
+    return categories, values
+
+
+def _echarts_chart_data_from_text(option_text: str) -> tuple[list[str], list[float | None]] | None:
+    """Return chart categories and forecast values from JavaScript option text."""
+    categories_match = re.search(r'"xAxis"\s*:\s*\{.*?"data"\s*:\s*\[(.*?)\]', option_text, re.S)
+    series_match = re.search(
+        r'"name"\s*:\s*"Maximum prijs\s*\(Voorspellingen\)".*?"data"\s*:\s*\[(.*?)\]',
+        option_text,
+        re.S,
+    )
+
+    if categories_match is None or series_match is None:
+        return None
+
+    categories = [
+        item.strip().strip("'\"") for item in categories_match.group(1).split(",") if item.strip()
+    ]
+    values = _parse_series_float_values(series_match.group(1))
+
+    return categories, values
+
+
+def _echarts_categories(option: dict) -> list[str] | None:
+    """Return category labels from an ECharts option object."""
+    x_axis = option.get("xAxis")
+    if isinstance(x_axis, list):
+        x_axis = x_axis[0] if x_axis else None
+
+    if not isinstance(x_axis, dict):
+        return None
+
+    data = x_axis.get("data")
+    if not isinstance(data, list):
+        return None
+
+    return [str(item) for item in data]
+
+
+def _echarts_prediction_values(option: dict) -> list[float | None] | None:
+    """Return the Maximum prijs forecast series from an ECharts option object."""
+    series_items = option.get("series")
+    if not isinstance(series_items, list):
+        return None
+
+    for series in series_items:
+        if not isinstance(series, dict):
+            continue
+
+        name = " ".join(str(series.get("name", "")).split())
+        if name != "Maximum prijs (Voorspellingen)":
+            continue
+
+        raw_values = series.get("data")
+        if not isinstance(raw_values, list):
+            return None
+
+        return [_coerce_chart_value(value) for value in raw_values]
+
+    return None
+
+
+def _coerce_chart_value(value: object) -> float | None:
+    """Coerce a chart data point into a float if possible."""
+    if value is None:
+        return None
+
+    if isinstance(value, int | float):
+        return float(value)
+
+    if isinstance(value, str):
+        return _safe_float_or_none(value)
+
+    if isinstance(value, dict):
+        return _coerce_chart_value(value.get("value"))
+
+    if isinstance(value, list) and value:
+        return _coerce_chart_value(value[-1])
+
+    return None
+
+
+def _safe_float_or_none(value: str) -> float | None:
+    """Convert a string to float, returning None for non-numeric chart values."""
+    cleaned = value.strip()
+    if not cleaned or cleaned.lower() == "null":
+        return None
+
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _normalize_prediction_price(value: float) -> float:
+    """Convert Carbu's Euro/1000L chart values to Euro/L for attributes."""
+    if abs(value) > 20:
+        return value / 1000
+    return value
 
 
 def _safe_float(value: str, default: float = 0.0) -> float:
